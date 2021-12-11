@@ -1,0 +1,102 @@
+name: Build
+on:
+  push:
+    branches:
+      - main
+env:
+  UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+jobs:
+
+  build:
+    name: Build my project ✨
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository ☑️
+        uses: actions/checkout@v2
+        with:
+          lfs: true
+          
+      - name: Active Cache 📁
+        uses: actions/cache@v1.1.0
+        with:
+          path: Library
+          key: Library
+          
+      - name: Unity - Builder 🔨
+        uses: game-ci/unity-builder@v2.0-aplha-5
+        with:
+          unityVersion: 2020.2.1f1
+          targetPlatform: StandaloneWindows64
+          kubeVolumeSize: 8Gi
+          
+      - name: Upload Build ⬆️
+        uses: actions/upload-artifact@v1
+        with:
+            name: Build
+            path: build
+            
+      - name: Unity - Tests 🧪
+        uses: game-ci/unity-test-runner@v2
+        with:
+          unityVersion: 2020.2.1f1
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: SonarCloud - Scan 🔍
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION_KEY }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+
+  release-project:
+    name: Create Release 📦
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository ☑️
+        uses: actions/checkout@v2
+
+      - name: Create GitHub Release 🐱📦
+        uses: actions/setup-node@v1
+        id: create-new-release
+        with:
+          node-version: "12.x"
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Download site ⬇️
+        uses: actions/download-artifact@v2
+        id: download
+        with:
+          name: Build
+          path: build
+
+      - name: Archive Build content 🗄️
+        uses: thedoctor0/zip-release@master
+        with:
+          filename: Build.zip
+          path: build
+          
+      - name: Gets latest created release info ℹ️
+        id: latest_release_info
+        uses: jossef/action-latest-release-info@v1.1.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload asset to Github Release ⬆️
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{steps.latest_release_info.outputs.upload_url}}
+          asset_name: Build-v${{github.run_number}}.zip
+          asset_path: ./Build.zip
+          asset_content_type: application/zip
+        
